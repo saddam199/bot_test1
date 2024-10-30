@@ -1,10 +1,18 @@
 import telebot
 import sqlite3
-from telebot.types import ReplyKeyboardMarkup, KeyboardButton
+from telebot.types import ReplyKeyboardMarkup, KeyboardButton, InlineKeyboardMarkup, InlineKeyboardButton
 
 # ضع رمز API الخاص بالبوت هنا
 API_TOKEN = '7859733734:AAEfUSacYoHRMDgmL_QBjCKOdv_xOQRqMhY'
 bot = telebot.TeleBot(API_TOKEN)
+
+# إنشاء قائمة للإيميلات وكلمات المرور
+email_list = [
+    {"email": "email1@gmail.com", "password": "password1"},
+    {"email": "email2@gmail.com", "password": "password2"},
+    {"email": "email3@gmail.com", "password": "password3"}
+]
+reserved_emails = {}  # تخزين الإيميلات المحجوزة لكل مستخدم
 
 # إنشاء قاعدة بيانات وجدول للمستخدمين إذا لم تكن موجودة
 def init_db():
@@ -63,13 +71,47 @@ def send_welcome(message):
 # معالجة زر "Register a new Gmail"
 @bot.message_handler(func=lambda message: message.text == "Register a new Gmail")
 def register_gmail(message):
-    registration_info = (
-        "🔹 Register a Gmail account using the specified data and get 0.05$ \n\n"
-        "📧 Email: test@gmail.com\n"
-        "🔐 Password: test\n\n"
-        "⚠️ Be sure to use the specified password, otherwise the account will not be paid."
-    )
-    bot.send_message(message.chat.id, registration_info)
+    user_id = message.from_user.id
+    if user_id in reserved_emails:
+        bot.send_message(message.chat.id, "لديك إيميل محجوز بالفعل. استخدمه أولاً.")
+        return
+
+    # الحصول على أول إيميل غير محجوز من القائمة
+    if email_list:
+        email_data = email_list.pop(0)  # إزالة الإيميل من القائمة
+        reserved_emails[user_id] = email_data  # حجز الإيميل للمستخدم
+
+        # إعداد أزرار الموافقة أو الرفض
+        markup = InlineKeyboardMarkup()
+        markup.add(InlineKeyboardButton("Oui", callback_data="confirm_yes"))
+        markup.add(InlineKeyboardButton("No", callback_data="confirm_no"))
+
+        # إرسال معلومات الإيميل
+        registration_info = (
+            "🔹 Register a Gmail account using the specified data and get 0.05$ \n\n"
+            f"📧 Email: {email_data['email']}\n"
+            f"🔐 Password: {email_data['password']}\n\n"
+            "⚠️ Be sure to use the specified password, otherwise the account will not be paid."
+        )
+        bot.send_message(message.chat.id, registration_info, reply_markup=markup)
+    else:
+        bot.send_message(message.chat.id, "عذرًا، جميع الإيميلات محجوزة حاليًا.")
+
+# التعامل مع رد المستخدم على طلب الحجز
+@bot.callback_query_handler(func=lambda call: call.data.startswith("confirm_"))
+def callback_confirm(call):
+    user_id = call.from_user.id
+    if user_id not in reserved_emails:
+        bot.send_message(call.message.chat.id, "لم يتم العثور على إيميل محجوز.")
+        return
+
+    if call.data == "confirm_yes":
+        bot.send_message(call.message.chat.id, "تم حجز الإيميل بنجاح! استخدمه كما هو مذكور.")
+    elif call.data == "confirm_no":
+        # إرجاع الإيميل للقائمة وإلغاء الحجز
+        email_data = reserved_emails.pop(user_id)
+        email_list.append(email_data)
+        bot.send_message(call.message.chat.id, "تم إلغاء الحجز. يمكنك طلب إيميل جديد لاحقًا.")
 
 # معالجة زر "My accounts"
 @bot.message_handler(func=lambda message: message.text == "My accounts")
