@@ -18,6 +18,8 @@ reserved_emails = {}  # تخزين الإيميلات المحجوزة لكل م
 def init_db():
     conn = sqlite3.connect('users.db')
     cursor = conn.cursor()
+
+    # إنشاء جدول المستخدمين
     cursor.execute('''
         CREATE TABLE IF NOT EXISTS users (
             user_id INTEGER PRIMARY KEY,
@@ -26,6 +28,31 @@ def init_db():
             balance REAL DEFAULT 0.0
         )
     ''')
+
+    # إنشاء جدول الحسابات لمتابعة حسابات Gmail التي يتم إنشاؤها
+    cursor.execute('''
+        CREATE TABLE IF NOT EXISTS accounts (
+            account_id INTEGER PRIMARY KEY AUTOINCREMENT,
+            user_id INTEGER,
+            email TEXT,
+            password TEXT,
+            status TEXT DEFAULT 'Pending',
+            FOREIGN KEY(user_id) REFERENCES users(user_id)
+        )
+    ''')
+
+    # إنشاء جدول المعاملات المالية لمتابعة الأرباح لكل مستخدم
+    cursor.execute('''
+        CREATE TABLE IF NOT EXISTS transactions (
+            transaction_id INTEGER PRIMARY KEY AUTOINCREMENT,
+            user_id INTEGER,
+            amount REAL,
+            description TEXT,
+            timestamp DATETIME DEFAULT CURRENT_TIMESTAMP,
+            FOREIGN KEY(user_id) REFERENCES users(user_id)
+        )
+    ''')
+
     conn.commit()
     conn.close()
 
@@ -40,11 +67,12 @@ def add_user(user_id, account_name, account_number):
     conn.commit()
     conn.close()
 
-# تحديث رصيد المستخدم
-def update_balance(user_id, amount):
+# تحديث رصيد المستخدم وتسجيل المعاملة المالية
+def update_balance(user_id, amount, description):
     conn = sqlite3.connect('users.db')
     cursor = conn.cursor()
     cursor.execute('UPDATE users SET balance = balance + ? WHERE user_id = ?', (amount, user_id))
+    cursor.execute('INSERT INTO transactions (user_id, amount, description) VALUES (?, ?, ?)', (user_id, amount, description))
     conn.commit()
     conn.close()
 
@@ -56,6 +84,23 @@ def get_balance(user_id):
     result = cursor.fetchone()
     conn.close()
     return result[0] if result else 0.0
+
+# تسجيل حساب Gmail جديد
+def add_account(user_id, email, password):
+    conn = sqlite3.connect('users.db')
+    cursor = conn.cursor()
+    cursor.execute('INSERT INTO accounts (user_id, email, password) VALUES (?, ?, ?)', (user_id, email, password))
+    conn.commit()
+    conn.close()
+
+# الحصول على الحسابات الخاصة بالمستخدم
+def get_user_accounts(user_id):
+    conn = sqlite3.connect('users.db')
+    cursor = conn.cursor()
+    cursor.execute('SELECT email, status FROM accounts WHERE user_id = ?', (user_id,))
+    accounts = cursor.fetchall()
+    conn.close()
+    return accounts
 
 # إعداد الأزرار الرئيسية
 def main_menu():
@@ -90,6 +135,9 @@ def register_gmail(message):
         email_data = email_list.pop(0)  # إزالة الإيميل من القائمة
         reserved_emails[user_id] = email_data  # حجز الإيميل للمستخدم
 
+        # تسجيل الحساب في قاعدة البيانات
+        add_account(user_id, email_data["email"], email_data["password"])
+
         # إعداد أزرار الموافقة أو الرفض
         markup = InlineKeyboardMarkup()
         markup.add(InlineKeyboardButton("Oui", callback_data="confirm_yes"))
@@ -115,9 +163,15 @@ def callback_confirm(call):
         return
 
     if call.data == "confirm_yes":
-        # إضافة 0.05$ إلى رصيد المستخدم
-        update_balance(user_id, 0.05)
+        # إضافة 0.05$ إلى رصيد المستخدم وتحديث المعاملة
+        update_balance(user_id, 0.05, "Payment for Gmail account creation")
         bot.send_message(call.message.chat.id, "تم حجز الإيميل بنجاح! وقد تم إضافة 0.05$ إلى رصيدك.")
+        # تحديث حالة الحساب في قاعدة البيانات
+        conn = sqlite3.connect('users.db')
+        cursor = conn.cursor()
+        cursor.execute('UPDATE accounts SET status = "Confirmed" WHERE user_id = ? AND email = ?', (user_id, reserved_emails[user_id]["email"]))
+        conn.commit()
+        conn.close()
         # إزالة الإيميل المحجوز
         reserved_emails.pop(user_id)
     elif call.data == "confirm_no":
@@ -126,12 +180,23 @@ def callback_confirm(call):
         email_list.append(email_data)
         bot.send_message(call.message.chat.id, "تم إلغاء الحجز. يمكنك طلب إيميل جديد لاحقًا.")
 
-# معالجة زر "Balance" لعرض الرصيد
+# عرض الرصيد عند الضغط على "Balance"
 @bot.message_handler(func=lambda message: message.text == "Balance")
 def show_balance(message):
     user_id = message.from_user.id
     balance = get_balance(user_id)
     bot.send_message(message.chat.id, f"رصيدك الحالي هو: {balance:.2f} $")
+
+# عرض الحسابات عند الضغط على "My accounts"
+@bot.message_handler(func=lambda message: message.text == "My accounts")
+def my_accounts(message):
+    user_id = message.from_user.id
+    accounts = get_user_accounts(user_id)
+    if accounts:
+        account_details = "\n".join([f"📧 {email} - Status: {status}" for email, status in accounts])
+        bot.send_message(message.chat.id, f"حساباتك:\n{account_details}")
+    else:
+        bot.send_message(message.chat.id, "لا توجد حسابات مسجلة.")
 
 # تهيئة قاعدة البيانات عند بدء التشغيل
 init_db()
