@@ -16,7 +16,7 @@ def main_menu():
 # معالجة رسالة البدء
 @bot.message_handler(commands=['start'])
 def send_welcome(message):
-    bot.send_message(message.chat.id, "أهلاً بك في البوت! اختر أحد الخيارات أدناه:", reply_markup=main_menu())
+    bot.send_message(message.chat.id, "أهلاً بالجميع في البوت! اختر أحد الخيارات أدناه:", reply_markup=main_menu())
 
 # تشغيل البوت
 bot.polling()
