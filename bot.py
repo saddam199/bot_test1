@@ -105,9 +105,9 @@ def get_user_accounts(user_id):
 # إعداد الأزرار الرئيسية
 def main_menu():
     markup = ReplyKeyboardMarkup(resize_keyboard=True)
-    markup.row(KeyboardButton("Register a new Gmail"), KeyboardButton("My accounts"))
-    markup.row(KeyboardButton("Balance"), KeyboardButton("My referrals"))
-    markup.row(KeyboardButton("Settings"), KeyboardButton("Help"))
+    markup.row(KeyboardButton("تسجيل حساب Gmail جديد"), KeyboardButton("حسابي"))
+    markup.row(KeyboardButton("المحفظة"), KeyboardButton("My referrals"))
+    markup.row(KeyboardButton("اعدادات"), KeyboardButton("مساعدة"))
     return markup
 
 # معالجة رسالة البدء
