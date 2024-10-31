@@ -1,17 +1,17 @@
 import telebot
 import mysql.connector
+import os
 from telebot.types import InlineKeyboardMarkup, InlineKeyboardButton
 
-# إعداد التوكن الخاص بالبوت
+# جلب توكن البوت وبيانات قاعدة البيانات من المتغيرات البيئية
 API_TOKEN = '7859733734:AAEfUSacYoHRMDgmL_QBjCKOdv_xOQRqMhY'
 bot = telebot.TeleBot(API_TOKEN)
 
-# إعدادات الاتصال بقاعدة البيانات
 db_config = {
-    'host': 'localhost',         # عنوان السيرفر
-    'user': 'your_username',     # اسم المستخدم
-    'password': 'your_password', # كلمة المرور
-    'database': 'your_database'  # اسم قاعدة البيانات
+    'host': os.getenv('DB_HOST'),         
+    'user': os.getenv('DB_USER'),        
+    'password': os.getenv('DB_PASSWORD'),
+    'database': os.getenv('DB_NAME')      
 }
 
 # دالة لجلب بريد Gmail عشوائي غير محجوز من قاعدة البيانات
@@ -22,7 +22,6 @@ def fetch_random_email():
     result = cursor.fetchone()
     if result:
         email, password = result
-        # تحديث حالة البريد كـ"محجوز"
         cursor.execute("UPDATE gmail_accounts SET reserved = 1 WHERE email = %s", (email,))
         conn.commit()
     else:
