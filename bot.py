@@ -1,51 +1,114 @@
 import telebot
 import mysql.connector
-import os
-from telebot.types import InlineKeyboardMarkup, InlineKeyboardButton
+from telebot.types import ReplyKeyboardMarkup, KeyboardButton, InlineKeyboardMarkup, InlineKeyboardButton
 
-# جلب توكن البوت وبيانات قاعدة البيانات من المتغيرات البيئية
+# ضع رمز API الخاص بالبوت هنا
 API_TOKEN = '7859733734:AAEfUSacYoHRMDgmL_QBjCKOdv_xOQRqMhY'
 bot = telebot.TeleBot(API_TOKEN)
 
-db_config = {
-    'host': os.getenv('DB_HOST'),         
-    'user': os.getenv('DB_USER'),        
-    'password': os.getenv('DB_PASSWORD'),
-    'database': os.getenv('DB_NAME')      
-}
+# قائمة الإيميلات وكلمات المرور
+email_list = [
+    {"email": "email1@gmail.com", "password": "password1"},
+    {"email": "email2@gmail.com", "password": "password2"},
+    {"email": "email3@gmail.com", "password": "password3"}
+]
+reserved_emails = {}  # تخزين الإيميلات المحجوزة لكل مستخدم
 
-# دالة لجلب بريد Gmail عشوائي غير محجوز من قاعدة البيانات
-def fetch_random_email():
-    conn = mysql.connector.connect(**db_config)
+# إعداد اتصال MySQL
+def connect_db():
+    return mysql.connector.connect(
+        host="localhost",
+        user="username",
+        password="password",
+        database="database_name"
+    )
+
+# إنشاء قاعدة البيانات والجداول المطلوبة
+def init_db():
+    conn = connect_db()
     cursor = conn.cursor()
-    cursor.execute("SELECT email, password FROM gmail_accounts WHERE reserved = 0 ORDER BY RAND() LIMIT 1")
-    result = cursor.fetchone()
-    if result:
-        email, password = result
-        cursor.execute("UPDATE gmail_accounts SET reserved = 1 WHERE email = %s", (email,))
-        conn.commit()
-    else:
-        email, password = None, None
-    cursor.close()
+
+    # إنشاء جدول المستخدمين
+    cursor.execute('''
+        CREATE TABLE IF NOT EXISTS users (
+            user_id BIGINT PRIMARY KEY,
+            account_name VARCHAR(255),
+            account_number VARCHAR(255),
+            balance DECIMAL(10, 2) DEFAULT 0.0
+        )
+    ''')
+
+    # إنشاء جدول الحسابات
+    cursor.execute('''
+        CREATE TABLE IF NOT EXISTS accounts (
+            account_id BIGINT PRIMARY KEY AUTO_INCREMENT,
+            user_id BIGINT,
+            email VARCHAR(255),
+            password VARCHAR(255),
+            status VARCHAR(20) DEFAULT 'Pending',
+            FOREIGN KEY(user_id) REFERENCES users(user_id)
+        )
+    ''')
+
+    # إنشاء جدول المعاملات المالية
+    cursor.execute('''
+        CREATE TABLE IF NOT EXISTS transactions (
+            transaction_id BIGINT PRIMARY KEY AUTO_INCREMENT,
+            user_id BIGINT,
+            amount DECIMAL(10, 2),
+            description TEXT,
+            timestamp TIMESTAMP DEFAULT CURRENT_TIMESTAMP,
+            FOREIGN KEY(user_id) REFERENCES users(user_id)
+        )
+    ''')
+
+    conn.commit()
     conn.close()
-    return {"email": email, "password": password} if email else None
 
-# دالة لإظهار زر "تسجيل حساب Gmail جديد"
-@bot.message_handler(commands=['start'])
-def send_welcome(message):
-    markup = InlineKeyboardMarkup()
-    btn_new_account = InlineKeyboardButton("تسجيل حساب Gmail جديد", callback_data="new_account")
-    markup.add(btn_new_account)
-    bot.send_message(message.chat.id, "مرحباً! اضغط على الزر أدناه لتسجيل حساب Gmail جديد.", reply_markup=markup)
+# إضافة مستخدم جديد إلى قاعدة البيانات
+def add_user(user_id, account_name, account_number):
+    conn = connect_db()
+    cursor = conn.cursor()
+    cursor.execute('''
+        INSERT IGNORE INTO users (user_id, account_name, account_number, balance)
+        VALUES (%s, %s, %s, 0.0)
+    ''', (user_id, account_name, account_number))
+    conn.commit()
+    conn.close()
 
-# التعامل مع ضغط زر "تسجيل حساب Gmail جديد"
-@bot.callback_query_handler(func=lambda call: call.data == "new_account")
-def handle_new_account(call):
-    email_data = fetch_random_email()
-    if email_data:
-        bot.send_message(call.message.chat.id, f"📧 Email: {email_data['email']}\n🔐 Password: {email_data['password']}")
-    else:
-        bot.send_message(call.message.chat.id, "عذرًا، لا يوجد بريد إلكتروني متاح حالياً.")
+# تحديث رصيد المستخدم وتسجيل المعاملة المالية
+def update_balance(user_id, amount, description):
+    conn = connect_db()
+    cursor = conn.cursor()
+    cursor.execute('UPDATE users SET balance = balance + %s WHERE user_id = %s', (amount, user_id))
+    cursor.execute('INSERT INTO transactions (user_id, amount, description) VALUES (%s, %s, %s)', (user_id, amount, description))
+    conn.commit()
+    conn.close()
 
-# تشغيل البوت
-bot.polling()
+# الحصول على رصيد المستخدم
+def get_balance(user_id):
+    conn = connect_db()
+    cursor = conn.cursor()
+    cursor.execute('SELECT balance FROM users WHERE user_id = %s', (user_id,))
+    result = cursor.fetchone()
+    conn.close()
+    return result[0] if result else 0.0
+
+# تسجيل حساب Gmail جديد
+def add_account(user_id, email, password):
+    conn = connect_db()
+    cursor = conn.cursor()
+    cursor.execute('INSERT INTO accounts (user_id, email, password) VALUES (%s, %s, %s)', (user_id, email, password))
+    conn.commit()
+    conn.close()
+
+# الحصول على الحسابات الخاصة بالمستخدم
+def get_user_accounts(user_id):
+    conn = connect_db()
+    cursor = conn.cursor()
+    cursor.execute('SELECT email, status FROM accounts WHERE user_id = %s', (user_id,))
+    accounts = cursor.fetchall()
+    conn.close()
+    return accounts
+
+# باقي الشيفرة بدون تغيير...
